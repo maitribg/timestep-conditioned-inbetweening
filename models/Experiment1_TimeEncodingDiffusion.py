@@ -3,28 +3,24 @@ import numpy as np
 from PIL import Image
 import torch
 from diffusers import (
-    StableDiffusionPipeline,
-    DDIMScheduler,
     StableDiffusionImageVariationPipeline,
 )
-from KeyframeConditionEncoder import KeyframeConditionEncoder
 from tqdm import tqdm
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from PIL import Image
 import matplotlib.pyplot as plt
-from pathlib import Path
 import math
 
-from dataloader import AnitaDataset
+from dataset import AnitaDataset
 from torch.utils.data import DataLoader
 import argparse
 import multiprocessing as mp
 import gc
 
 
-class ImageConditionedDiffusion(nn.Module):
+class TimeEncodingDiffusionModel(nn.Module):
     def __init__(
         self,
         model_name="lambdalabs/sd-image-variations-diffusers",
@@ -490,7 +486,7 @@ def main(args):
 
     print("initializing model...")
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    model = ImageConditionedDiffusion(save_dir=args.save_dir).to(device)
+    model = TimeEncodingDiffusionModel(save_dir=args.save_dir).to(device)
 
     print("starting training...")
 

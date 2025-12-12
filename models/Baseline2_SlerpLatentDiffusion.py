@@ -9,8 +9,13 @@ from PIL import Image
 import matplotlib.pyplot as plt
 from pathlib import Path
 
+from dataset import AnitaDataset
+from torch.utils.data import DataLoader
+import argparse
+from tqdm import tqdm
 
-class Diffusion:
+
+class SlerpLatentDiffusionModel:
     def __init__(self, model_name="runwayml/stable-diffusion-v1-5", device=None):
         self.device = (
             device if device else ("cuda" if torch.cuda.is_available() else "cpu")
@@ -217,3 +222,42 @@ def visualize_results(start_frames, end_frames, inbetweens, save_path=None):
         print(f"Saved visualization to {save_path}")
     else:
         plt.show()
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--data_dir", "-d", type=str, default="data")
+    parser.add_argument("--output_dir", "-o", type=str, default="output")
+    args = parser.parse_args()
+
+    dataset = AnitaDataset(os.path.join(args.data_dir, "test"), image_shape=(224, 224))
+    dataloader = DataLoader(dataset, batch_size=8, shuffle=False, num_workers=4)
+
+    model = SlerpLatentDiffusionModel()
+
+    for batch in tqdm(dataloader):
+        start_frames = batch["anchor_start"]
+        end_frames = batch["anchor_end"]
+        targets = batch["targets"]
+
+        predictions = model.predict_inbetween_sequence(start_frames, end_frames)
+        for i, prediction in enumerate(predictions):
+            for j, frame in enumerate(prediction):
+                frame.save(
+                    os.path.join(
+                        args.output_dir, f"sample_{i:04d}", "{j:02d}_inbetween.png"
+                    )
+                )
+            start_frames[i].save(
+                os.path.join(args.output_dir, f"sample_{i:04d}", "00_start.png")
+            )
+            end_frames[i].save(
+                os.path.join(args.output_dir, f"sample_{i:04d}", "04_end.png")
+            )
+            for j, target in enumerate(targets[i]):
+                target.save(
+                    os.path.join(
+                        args.output_dir, f"sample_{i:04d}", f"{j:02d}_target.png"
+                    )
+                )
+    print("Evaluation complete")

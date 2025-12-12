@@ -3,27 +3,23 @@ import numpy as np
 from PIL import Image
 import torch
 from diffusers import (
-    StableDiffusionPipeline,
-    DDIMScheduler,
     StableDiffusionImageVariationPipeline,
 )
-from KeyframeConditionEncoder import KeyframeConditionEncoder
 from tqdm import tqdm
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from PIL import Image
 import matplotlib.pyplot as plt
-from pathlib import Path
 
-from dataloader import AnitaDataset
+from dataset import AnitaDataset
 from torch.utils.data import DataLoader
 import argparse
 import multiprocessing as mp
 import gc
 
 
-class ImageConditionedDiffusion(nn.Module):
+class KeyframeConditionedDiffusionModel(nn.Module):
     def __init__(
         self,
         model_name="lambdalabs/sd-image-variations-diffusers",
@@ -48,20 +44,20 @@ class ImageConditionedDiffusion(nn.Module):
         self.image_encoder = pipe.image_encoder
         self.feature_extractor = pipe.feature_extractor
         self.feature_extractor.do_rescale = False
-        
+
         self.image_processor = pipe.image_processor
-        
+
         for param in self.image_encoder.parameters():
             param.requires_grad = False
         for param in self.unet.parameters():
             param.requires_grad = False
         for param in self.vae.parameters():
             param.requires_grad = False
-            
+
         context_dim = self.unet.config.cross_attention_dim
         self.visual_adapter = nn.Sequential(
             nn.Linear(768 * 2, context_dim),
-            nn.SiLU(), 
+            nn.SiLU(),
             nn.LayerNorm(context_dim),
             nn.Linear(context_dim, context_dim),
         )
@@ -134,11 +130,11 @@ class ImageConditionedDiffusion(nn.Module):
     def generate_condition_embeds(self, start_frames, end_frames, timestep=0.5):
         start_emb = self.encode_condition_CLIP(start_frames).unsqueeze(1)
         end_emb = self.encode_condition_CLIP(end_frames).unsqueeze(1)
-        both = torch.cat([start_emb, end_emb], dim=1) 
+        both = torch.cat([start_emb, end_emb], dim=1)
         # cond = self.visual_adapter(both) # (B, context_dim(768))
         # cond = (1 - timestep) * start_emb + timestep * end_emb
-        return both.unsqueeze(1)      
-        
+        return both.unsqueeze(1)
+
     def training_step(self, batch, structure_loss=False):
         start = batch["anchor_start"].to(self.device)
         end = batch["anchor_end"].to(self.device)
@@ -147,7 +143,7 @@ class ImageConditionedDiffusion(nn.Module):
         idx = np.random.randint(0, targets.shape[1])
         timestep = (idx + 1) / (targets.shape[1] + 1)
         target = targets[:, idx, :, :, :]
-        
+
         with torch.no_grad():
             z_target = self.encode_image_to_latent(target)
             condition = self.generate_condition_embeds(start, end, timestep=timestep)
@@ -191,7 +187,7 @@ class ImageConditionedDiffusion(nn.Module):
                         batch["anchor_start"].to(self.device),
                         batch["anchor_end"].to(self.device),
                         num_inbetweens=batch["targets"].shape[1],
-                        num_denoising_steps = num_inference_steps,
+                        num_denoising_steps=num_inference_steps,
                         guidance_scale=guidance_scale,
                     )
                     self.visualize_inbetweens(batch, pred_seq, epoch)
@@ -291,7 +287,7 @@ class ImageConditionedDiffusion(nn.Module):
                 loss.backward()
                 optimizer.step()
                 train_loss += loss.item()
-                i+=1
+                i += 1
             torch.cuda.empty_cache()
             gc.collect()
             avg_train_loss = train_loss / len(train_loader)
@@ -310,13 +306,14 @@ class ImageConditionedDiffusion(nn.Module):
                     self.state_dict(),
                     os.path.join(save_dir, "model_ckpt", f"best_model.pth"),
                 )
-            
+
             if (epoch + 1) % 5 == 0:
                 best_val_loss = val_loss
                 torch.save(
                     self.state_dict(),
                     os.path.join(save_dir, "model_ckpt", f"epoch_{epoch+1}.pth"),
                 )
+
     def null_embedding(self, cond):
         return torch.zeros_like(cond)
 
@@ -344,10 +341,10 @@ class ImageConditionedDiffusion(nn.Module):
         img = img_tensor.detach().cpu().clamp(0, 1)
         img = (img * 255).byte().permute(1, 2, 0).numpy()  # (H, W, 3)
         return Image.fromarray(img)
-    
+
     def decode_latent_to_image(self, latent):
         with torch.no_grad():
-            latents = latent/self.vae.config.scaling_factor
+            latents = latent / self.vae.config.scaling_factor
             img = self.vae.decode(latents).sample
         img = (img / 2 + 0.5).clamp(0, 1)
         img = img.cpu().permute(0, 2, 3, 1).numpy()
@@ -360,27 +357,27 @@ class ImageConditionedDiffusion(nn.Module):
         start_frames,
         end_frames,
         timestep=0.5,
-        num_inference_steps = 25,
+        num_inference_steps=25,
         guidance_scale=1.0,
-        noise_strength = 0.25
-    ):  
-        
+        noise_strength=0.25,
+    ):
+
         cond_embeds = self.generate_condition_embeds(
             start_frames, end_frames, timestep=timestep
         )
-        
+
         self.scheduler.set_timesteps(num_inference_steps, device=self.device)
-        
+
         z0 = self.encode_image_to_latent(start_frames)
         z1 = self.encode_image_to_latent(end_frames)
         z_init = self.slerp(z0, z1, timestep)
-        
+
         self.scheduler.set_timesteps(num_inference_steps, device=self.device)
         timesteps = self.scheduler.timesteps
-        
+
         start_idx = int(noise_strength * (len(timesteps) - 1))
         t_start = timesteps[start_idx]
-        
+
         noise = torch.randn_like(z_init)
         latents = self.scheduler.add_noise(z_init, noise, t_start)
         # latents = torch.randn(
@@ -388,7 +385,7 @@ class ImageConditionedDiffusion(nn.Module):
         #     device=self.device,
         #     dtype=self.vae.dtype,
         # )
-        
+
         if guidance_scale == 1.0:
             for t in timesteps[start_idx:]:
                 noise_pred = self.unet(
@@ -396,7 +393,7 @@ class ImageConditionedDiffusion(nn.Module):
                     t,
                     encoder_hidden_states=cond_embeds,
                 ).sample
-                
+
                 latents = self.scheduler.step(noise_pred, t, latents).prev_sample
         else:
             for t in timesteps[start_idx:]:
@@ -407,21 +404,19 @@ class ImageConditionedDiffusion(nn.Module):
                     guidance_scale,
                 )
             latents = self.scheduler.step(noise_pred, t, latents).prev_sample
-                
+
         images = self.decode_latent_to_image(latents)
-        
+
         return images
-        
-        
 
     def predict_inbetween_sequence(
         self,
         start_frames,
         end_frames,
         num_inbetweens=3,
-        num_denoising_steps = 25,
+        num_denoising_steps=25,
         guidance_scale=1.0,
-        noise_strength=0.25
+        noise_strength=0.25,
     ):
         inbetween_frames = []
         timesteps = [(i + 1) / (num_inbetweens + 1) for i in range(num_inbetweens)]
@@ -432,7 +427,7 @@ class ImageConditionedDiffusion(nn.Module):
                 timestep=x,
                 num_inference_steps=num_denoising_steps,
                 guidance_scale=guidance_scale,
-                noise_strength=noise_strength
+                noise_strength=noise_strength,
             )
             inbetween_frames.append(imgs)
         # OUTPUT FORMAT: LIST OF LISTS WITH FIRST DIM FRAME_INDEX, SECOND DIM BATCH_INDEX
@@ -442,7 +437,6 @@ class ImageConditionedDiffusion(nn.Module):
 def main(args):
 
     print("Image Conditioned Diffusion8")
-    
 
     print("loading dataset and dataloader...")
     train_data = AnitaDataset(
@@ -463,7 +457,7 @@ def main(args):
 
     print("initializing model...")
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    model = ImageConditionedDiffusion(save_dir=args.save_dir).to(device)
+    model = KeyframeConditionedDiffusionModel(save_dir=args.save_dir).to(device)
 
     print("starting training...")
 
