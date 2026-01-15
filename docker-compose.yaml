@@ -1,34 +1,20 @@
-#!/bin/bash
+version: '3.8'
 
-# Setup script for AWS EC2 training instance
-# Instance type: g4dn.xlarge (1 x NVIDIA T4, 16GB GPU memory)
+services:
+  training:
+    build: .
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+    volumes:
+      - ./data:/app/data
+      - ./output:/app/output
+    command: python train.py
 
-set -e
-
-echo "Setting up AWS EC2 instance for training..."
-
-# Update system
-sudo apt-get update
-sudo apt-get install -y docker.io docker-compose
-
-# Start docker
-sudo systemctl start docker
-sudo systemctl enable docker
-sudo usermod -aG docker $USER
-
-# Install NVIDIA Docker support
-distribution=$(. /etc/os-release;echo $ID$VERSION_ID)
-curl -s -L https://nvidia.github.io/nvidia-docker/gpgkey | sudo apt-key add -
-curl -s -L https://nvidia.github.io/nvidia-docker/$distribution/nvidia-docker.list | \
-    sudo tee /etc/apt/sources.list.d/nvidia-docker.list
-
-sudo apt-get update && sudo apt-get install -y nvidia-docker2
-sudo systemctl restart docker
-
-# Clone repository and build
-# git clone <your-repo>
-# cd timestep-conditioned-inbetweening
-# docker build -t animation-inbetweening .
-# docker run --gpus all -v $(pwd)/data:/app/data animation-inbetweening
-
-echo "Setup complete. Ready to train."
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.8.0
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./mlruns:/mlflow/mlruns
+    command: mlflow server --host 0.0.0.0
