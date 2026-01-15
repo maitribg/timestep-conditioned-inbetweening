@@ -85,7 +85,7 @@ Our **Temporal Encoding** approach outperformed all other diffusion-based method
 - **Base Model:** Stable Diffusion 1.5 (image-conditioned variant from LambdaLabs)
 - **Dataset:** Anita Dataset—16,000 hand-drawn animation frames from 14 professional animation sequences
 - **Framework:** PyTorch + Hugging Face Diffusers
-- **Compute:** ~110 GPU hours on A100s
+- **Compute:** ~110 GPU hours on AWS EC2 (g4dn.xlarge)
 
 ### Key Technical Decisions
 

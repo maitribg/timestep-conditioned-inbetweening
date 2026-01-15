@@ -18,3 +18,4 @@ services:
     volumes:
       - ./mlruns:/mlflow/mlruns
     command: mlflow server --host 0.0.0.0
+    
